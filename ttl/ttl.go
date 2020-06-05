@@ -54,33 +54,35 @@ func New(enable bool, interval, timeout time.Duration, l log.Logger, ms storage.
 
 func (t *TimeToLive) Start() {
 	if t.enable {
-		level.Info(t.logger).Log("msg", fmt.Sprintf("start time to live. interval: %v timeout: %v", t.interval, t.timeout))
-		ticker := time.NewTicker(t.interval)
-		for {
-			select {
-			case <-ticker.C:
-				level.Debug(t.logger).Log("msg", "run time to live")
-				for _, group := range t.metricStore.GetMetricFamiliesMap() {
-					timeout := time.Now().Add(-t.timeout)
-					del := true
-					for _, metrics := range group.Metrics {
-						if metrics.Timestamp.After(timeout) {
-							del = false
-							break
+		go func() {
+			level.Info(t.logger).Log("msg", fmt.Sprintf("start time to live. interval: %v timeout: %v", t.interval, t.timeout))
+			ticker := time.NewTicker(t.interval)
+			for {
+				select {
+				case <-ticker.C:
+					level.Debug(t.logger).Log("msg", "run time to live")
+					for _, group := range t.metricStore.GetMetricFamiliesMap() {
+						timeout := time.Now().Add(-t.timeout)
+						del := true
+						for _, metrics := range group.Metrics {
+							if metrics.Timestamp.After(timeout) {
+								del = false
+								break
+							}
+						}
+						if del {
+							t.metricStore.SubmitWriteRequest(storage.WriteRequest{
+								Labels:    group.Labels,
+								Timestamp: time.Now(),
+							})
+							level.Info(t.logger).Log("msg", "del metric group successful", "labels", group.Labels)
 						}
 					}
-					if del {
-						t.metricStore.SubmitWriteRequest(storage.WriteRequest{
-							Labels:    group.Labels,
-							Timestamp: time.Now(),
-						})
-						level.Info(t.logger).Log("msg", "del metric group successful", "labels", group.Labels)
-					}
+				case <-t.ctx.Done():
+					return
 				}
-			case <-t.ctx.Done():
-				return
 			}
-		}
+		}()
 	}
 }
 
