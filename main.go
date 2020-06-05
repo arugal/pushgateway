@@ -34,6 +34,7 @@ import (
 	"github.com/prometheus/common/promlog"
 	"github.com/prometheus/common/route"
 	"github.com/prometheus/common/version"
+	"github.com/prometheus/pushgateway/ttl"
 	"gopkg.in/alecthomas/kingpin.v2"
 
 	dto "github.com/prometheus/client_model/go"
@@ -69,7 +70,12 @@ func main() {
 		persistenceFile     = app.Flag("persistence.file", "File to persist metrics. If empty, metrics are only kept in memory.").Default("").String()
 		persistenceInterval = app.Flag("persistence.interval", "The minimum interval at which to write out the persistence file.").Default("5m").Duration()
 		pushUnchecked       = app.Flag("push.disable-consistency-check", "Do not check consistency of pushed metrics. DANGEROUS.").Default("false").Bool()
-		promlogConfig       = promlog.Config{}
+
+		ttlEnable   = app.Flag("ttl.enable", "Enable time to live").Default("false").Bool()
+		ttlInterval = app.Flag("ttl.interval", "The time to live run interval").Default("1m").Duration()
+		ttlTimeout  = app.Flag("ttl.timeout", "The time to live timeout time").Default("5m").Duration()
+
+		promlogConfig = promlog.Config{}
 	)
 	promlogflag.AddFlags(app, &promlogConfig)
 	app.Version(version.Print("pushgateway"))
@@ -192,9 +198,15 @@ func main() {
 
 	mux.Handle(apiPath+"/v1/", http.StripPrefix(apiPath+"/v1", av1))
 
+	// time to live
+	timeToLive := ttl.New(*ttlEnable, *ttlInterval, *ttlTimeout, logger, ms)
+	timeToLive.Start()
+
 	go closeListenerOnQuit(l, quitCh, logger)
 	err = (&http.Server{Addr: *listenAddress, Handler: mux}).Serve(l)
 	level.Error(logger).Log("msg", "HTTP server stopped", "err", err)
+	// shutdown time to live
+	timeToLive.Shutdown()
 	// To give running connections a chance to submit their payload, we wait
 	// for 1sec, but we don't want to wait long (e.g. until all connections
 	// are done) to not delay the shutdown.
