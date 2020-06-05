@@ -75,7 +75,7 @@ func (t *TimeToLive) Start() {
 								Labels:    group.Labels,
 								Timestamp: time.Now(),
 							})
-							level.Info(t.logger).Log("msg", "del metric group successful", "labels", group.Labels)
+							level.Info(t.logger).Log("msg", "del metric group successful", "job", group.Labels["job"])
 						}
 					}
 				case <-t.ctx.Done():
